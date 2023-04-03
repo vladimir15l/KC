@@ -4,6 +4,7 @@
 #include <time.h>
 #include <cublas_v2.h>
 #include <openacc.h>
+#include <cuda_runtime.h>
 
 #define IDX2C(i ,j, ld) (((j)*(ld))+(i)) 
 
@@ -17,10 +18,11 @@ int main(int argc, char** argv){
 	sscanf(argv[2], "%d", &n);
 	sscanf(argv[3], "%d", &iter_max);
     
-    acc_set_device_num(3, acc_device_default);
+    acc_set_device_num(2, acc_device_default);
 	cublasHandle_t handle;
 	cublasStatus_t stat;
-	cublasCreate(&handle);	
+	cublasCreate(&handle);
+	
 
 	double* A = (double*)calloc(n * n, sizeof(double));
 	double* Anew = (double*)calloc(n * n, sizeof(double));
@@ -61,7 +63,7 @@ int main(int argc, char** argv){
 		iter = iter + 1;
 		err = 0;
 		#pragma acc data present(A, Anew)
-        #pragma acc parallel loop gang worker num_workers(4) vector_length(128) 
+        #pragma acc parallel loop gang worker num_workers(4) vector_length(128)
 		for(int j = 1; j < n - 1; j++){
             #pragma acc loop vector
 			for(int i = 1; i < n - 1; i++){ 
@@ -71,27 +73,29 @@ int main(int argc, char** argv){
 		const double alpha = -1;
 		#pragma acc host_data use_device(A, Anew, Aerr)
 		{
-		stat = cublasDcopy(handle, n*n, Anew, 1, Aerr, 1);
-		if (stat != CUBLAS_STATUS_SUCCESS){
-			printf("cublasDcopy failed\n");
-			cublasDestroy(handle);
-			flag = 1;
-			break; 
-		}
-		stat = cublasDaxpy(handle, n*n, &alpha, A, 1, Aerr, 1);
-		if (stat != CUBLAS_STATUS_SUCCESS){
-			printf("cublasDaxpy failed\n");
-			cublasDestroy(handle);
-			flag = 1;
-			break;
-		}
-		stat = cublasIdamax(handle, n*n, Aerr, 1, &result);
-		if (stat != CUBLAS_STATUS_SUCCESS){
-			printf("cublasIdamax failed\n");
-			cublasDestroy(handle);
-			flag = 1;
-			break;
-		}
+		    if ((iter % 100 == 0 || iter == 1) && (iter >= 30000 || iter == 1)){
+				stat = cublasDcopy(handle, n*n, Anew, 1, Aerr, 1);
+		        if (stat != CUBLAS_STATUS_SUCCESS){
+			        printf("cublasDcopy failed\n");
+			        cublasDestroy(handle);
+			        flag = 1;
+			        break; 
+		        }
+		        stat = cublasDaxpy(handle, n*n, &alpha, A, 1, Aerr, 1);
+		        if (stat != CUBLAS_STATUS_SUCCESS){
+			        printf("cublasDaxpy failed\n");
+			        cublasDestroy(handle);
+			        flag = 1;
+			        break;
+		        }
+		        stat = cublasIdamax(handle, n*n, Aerr, 1, &result);
+		        if (stat != CUBLAS_STATUS_SUCCESS){
+			        printf("cublasIdamax failed\n");
+			        cublasDestroy(handle);
+			        flag = 1;
+			        break;
+		        }
+			}
 		}
 		#pragma acc kernels
 		{
@@ -110,8 +114,8 @@ int main(int argc, char** argv){
 
 	cublasDestroy(handle);
 
-	printf("%d %.15lf\n", iter, err);
-	printf("\n%lf\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("Number of iterations: %d\nError: %.15lf\n", iter, err);
+	printf("\nExecution time: %lf\n", (double)(end - start) / CLOCKS_PER_SEC);
 	free(A);
 	free(Anew);
 	return 0;
