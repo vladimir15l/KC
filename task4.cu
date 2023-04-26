@@ -1,3 +1,16 @@
+/*
+* This program is designed to solve the heat equation (five-point pattern) in a two-dimensional
+* domain on uniform grids. Boundary conditions – linear interpolation between the corners of
+* the region. The value in the corners is 10, 20, 30, 20.
+* The algorithm is as follows:
+*   * First we fill in the boundaries of the array.
+*   * Then, in a loop, we run through all the elements of the array except the boundary ones
+*     and calculate them as the average between the four neighbors, and save the result to a new array.
+*     Then we subtract the old array from the new one element by element and find the maximum. That's how we
+*     found the error. We repeat this procedure until the error becomes less than we need or until the
+*     number of iterations exceeds the limit we have set.
+*/
+
 #include <stdio.h>
 #include <iostream>
 #include <cub/block/block_load.cuh>
@@ -10,6 +23,7 @@ using namespace cub;
 // Device code
 __global__ void Calculation(double* Anew, double* A, int N)
 {
+	// Calculating each element on the device
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
 	int j = blockDim.y * blockIdx.y + threadIdx.y;
 	if (i > 0 && j > 0 && i < N - 1 && j < N - 1){
@@ -17,8 +31,11 @@ __global__ void Calculation(double* Anew, double* A, int N)
 	}
 }
 
+
+// Device code
 __global__ void Err(double* Anew, double* A, double* Err, int N)
 {
+	// Calculating an array of errors
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
 	int j = blockDim.y * blockIdx.y + threadIdx.y;
 	if (i < N && j < N){
@@ -26,9 +43,10 @@ __global__ void Err(double* Anew, double* A, double* Err, int N)
     }
 }
 
-
-
-
+///////////////////////////////////////////////////////////////////////////////
+// Calculating the maximum error by block reduce
+// using functions from the CUB library
+///////////////////////////////////////////////////////////////////////////////
 template <
     int                     BLOCK_THREADS,
     int                     ITEMS_PER_THREAD,
@@ -103,6 +121,11 @@ int main(int argc, char** argv)
 	// Invoke kernel
 	dim3 threadsPerBlock(8, 8);
 	dim3 blocksPerGrid(n / threadsPerBlock.x + 1, n / threadsPerBlock.y + 1);
+
+	///////////////////////////////////////////////////////////////////////////
+	// We calculate the elements two times in a row by swapping arrays.
+	// Every 100 iterations we calculate the maximum error using BlockReduceKernel
+	///////////////////////////////////////////////////////////////////////////
 	while(err > tol && iter < iter_max){
 		iter = iter + 1;
 		Calculation<<<blocksPerGrid, threadsPerBlock >>>(d_Anew, d_A, n);
@@ -111,15 +134,12 @@ int main(int argc, char** argv)
 			Err<<<blocksPerGrid, threadsPerBlock >>>(d_A, d_Anew, d_Err, n);
 			BlockReduceKernel<256, 16, BLOCK_REDUCE_WARP_REDUCTIONS><<<numBlocks, 256>>>(d_Err, d_out);
 	        BlockReduceKernel<256, 1, BLOCK_REDUCE_WARP_REDUCTIONS><<<1, numBlocks>>>(d_out, res);
+			// Copy result from device memory to host memory
 	        cudaMemcpy(&err, res, sizeof(double), cudaMemcpyDeviceToHost);
 		}
 		if (iter % 10000 == 0 || iter == 1) printf("%d %.15lf\n", iter, err);
 	}
 	
-
-	// Copy result from device memory to host memory
-	// cudaMemcpy(h_Anew, d_out, numBlocks*sizeof(double), cudaMemcpyDeviceToHost);
-	// h_Anew contains the result in host memory 
 	// Free device memory 
 	cudaFree(d_A);
 	cudaFree(d_Anew);
