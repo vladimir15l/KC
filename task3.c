@@ -31,7 +31,7 @@ int main(int argc, char** argv){
 	sscanf(argv[2], "%d", &n);
 	sscanf(argv[3], "%d", &iter_max);
     
-    acc_set_device_num(1, acc_device_default);
+	acc_set_device_num(3, acc_device_default);
 	cublasHandle_t handle;
 	cublasStatus_t stat;
 	cublasCreate(&handle);
@@ -85,56 +85,56 @@ int main(int argc, char** argv){
 	///////////////////////////////////////////////////////////////////////////
 	while(err > tol && iter < iter_max){
 		iter = iter + 1;
-
-		// Parallelize the calculation of elements using OpenACC
+		// Parallelize the calculation of elements using OpenACC 
 		#pragma acc data present(A, Anew)
-        #pragma acc parallel loop gang worker num_workers(4) vector_length(128)
-		for(int j = 1; j < n - 1; j++){
-            #pragma acc loop vector
-			for(int i = 1; i < n - 1; i++){ 
-				Anew[IDX2C(j, i, n)] = 0.25 * (A[IDX2C(j, i+1, n)] + A[IDX2C(j, i-1, n)] + A[IDX2C(j-1, i, n)] + A[IDX2C(j+1, i, n)]);
-			}
-		}
-		const double alpha = -1;
-
-		// We calculate the error every 100 iterations using the cuBLAS library
-		if ((iter % 100 == 0 && iter >= 30000) || iter == 1){
-			#pragma acc host_data use_device(A, Anew, Aerr)
-		    {
+        #pragma acc parallel loop gang num_workers(4) vector_length(128) 
+        for(int i = 1; i < n - 1; i++) { 
+            #pragma acc loop vector 
+            for(int j = 1; j < n - 1; j++)  
+                Anew[IDX2C(j, i, n)] = 0.25 * (A[IDX2C(j, i+1, n)] + A[IDX2C(j, i-1, n)] + A[IDX2C(j-1, i, n)] + A[IDX2C(j+1, i, n)]);
+        }
+ 
+        // We calculate the error every 100 iterations using the cuBLAS library 
+        if (iter % 100 == 0 || iter == 1)
+        {  
+            double alpha = -1.0; 
+                 
+            #pragma acc host_data use_device(Anew, A, Aerr) 
+            { 
 				// copy Anew to Aerr
-				stat = cublasDcopy(handle, n*n, Anew, 1, Aerr, 1);
-		        if (stat != CUBLAS_STATUS_SUCCESS){
+				stat = cublasDcopy(handle, n * n, Anew, 1, Aerr, 1);
+				if (stat != CUBLAS_STATUS_SUCCESS){
 			        printf("cublasDcopy failed\n");
 			        cublasDestroy(handle);
 			        flag = 1;
 			        break; 
 		        }
-				// Aerr(Anew) - A
-		        stat = cublasDaxpy(handle, n*n, &alpha, A, 1, Aerr, 1);
-		        if (stat != CUBLAS_STATUS_SUCCESS){
+                // Aerr(Anew) - A 
+                stat = cublasDaxpy(handle, n * n, &alpha, A, 1, Aerr, 1);
+				if (stat != CUBLAS_STATUS_SUCCESS){
 			        printf("cublasDaxpy failed\n");
 			        cublasDestroy(handle);
 			        flag = 1;
 			        break;
-		        }
-				// We find the maximum error in Aerr and return the error index 
-		        stat = cublasIdamax(handle, n*n, Aerr, 1, &result);
-		        if (stat != CUBLAS_STATUS_SUCCESS){
+		        } 
+                // We find the maximum error in Aerr and return the error index
+                stat = cublasIdamax(handle, n * n, Aerr, 1, &result);
+				if (stat != CUBLAS_STATUS_SUCCESS){
 			        printf("cublasIdamax failed\n");
 			        cublasDestroy(handle);
 			        flag = 1;
 			        break;
-		        }
-			}
+		        } 
+            } 
 			#pragma acc kernels
-			    err = Aerr[result-1];
+				err = Aerr[result-1];
 			// updating the error value on the host
-			#pragma acc update host(err)
-		}
+            #pragma acc update host(err) 
+        }
 		double* t = A;
 		A = Anew;
 		Anew = t;
-		if (iter % 10000 == 0 || iter == 1) printf("%d %.15lf\n", iter, err);
+		if (iter % 10000 == 0 || iter == 1) printf("%d %.15lf\n", iter, err); 
 	}
 	}
 	if (flag == 1){
@@ -151,4 +151,3 @@ int main(int argc, char** argv){
 	free(Anew);
 	return 0;
 }
-
