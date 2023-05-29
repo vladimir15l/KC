@@ -114,8 +114,9 @@ public:
 
 int main() {
     int size = 1024;
+    char input_file[] = "input.npy";
     Net net = Net(1024, 256, 16);    
-    float result = net("input.npy", size);
+    float result = net(input_file, size);
     printf("%lf\n\n", result);    
     return 0;
 }
